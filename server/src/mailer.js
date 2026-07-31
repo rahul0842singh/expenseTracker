@@ -1,9 +1,13 @@
 const nodemailer = require('nodemailer');
+const { Resend } = require('resend');
+
+// Resend is preferred when configured: it sends over HTTPS, so it works on
+// hosts like Render that block outbound SMTP ports. SMTP is kept as a
+// fallback for local development or hosts that don't block it.
+const resendConfigured = Boolean(process.env.RESEND_API_KEY);
+const resend = resendConfigured ? new Resend(process.env.RESEND_API_KEY) : null;
 
 let transporter = null;
-
-// Treat a host with no password as unconfigured, otherwise every send fails
-// with a confusing auth error instead of falling back to the console.
 const smtpConfigured = Boolean(process.env.SMTP_HOST && process.env.SMTP_PASS);
 
 if (smtpConfigured) {
@@ -25,17 +29,35 @@ if (smtpConfigured) {
   });
 }
 
-function isSmtpConfigured() {
-  return smtpConfigured;
+function isMailConfigured() {
+  return resendConfigured || smtpConfigured;
 }
 
-// Called once at startup so credential problems surface immediately
-// rather than on the first user signup.
+// Called once at startup so credential/connection problems surface
+// immediately rather than on the first user signup.
 async function verifyMailer() {
-  if (!transporter) {
-    console.log('SMTP not configured — OTP codes will be printed to this console.');
+  if (resendConfigured) {
+    console.log(
+      `Resend configured — OTP emails will be sent via Resend as ${
+        process.env.RESEND_FROM || 'ExpenseTracker <onboarding@resend.dev>'
+      }`
+    );
+    if (!process.env.RESEND_FROM) {
+      console.log(
+        '  Using the Resend sandbox address — this can only email your own Resend account.'
+      );
+      console.log(
+        '  Verify your domain in Resend, then set RESEND_FROM to send to real users.'
+      );
+    }
     return;
   }
+
+  if (!transporter) {
+    console.log('No email provider configured — OTP codes will be printed to this console.');
+    return;
+  }
+
   try {
     await transporter.verify();
     console.log(`SMTP ready — OTP emails will be sent via ${process.env.SMTP_HOST} as ${process.env.SMTP_USER}`);
@@ -55,23 +77,15 @@ async function verifyMailer() {
       console.error('  Could not reach the mail server. Check that:');
       console.error('    • SMTP_HOST matches your panel\'s outgoing server exactly');
       console.error('    • SMTP_PORT/SMTP_SECURE pair up (465+true, or 587+false)');
+      console.error('    • Your host allows outbound SMTP at all — many free hosts block it');
+      console.error('      (set RESEND_API_KEY instead to send over HTTPS, which is never blocked)');
     }
     console.error('');
   }
 }
 
-async function sendOtpEmail(email, code) {
-  if (!transporter) {
-    // No SMTP configured (development) — print the OTP to the server console.
-    console.log(`\n========================================`);
-    console.log(`  OTP for ${email}: ${code}`);
-    console.log(`========================================\n`);
-    return { delivered: false };
-  }
-
-  await transporter.sendMail({
-    from: process.env.SMTP_FROM || '"ExpenseTracker" <no-reply@expensetracker.app>',
-    to: email,
+function otpEmailContent(code) {
+  return {
     subject: `${code} is your ExpenseTracker verification code`,
     text: `Your ExpenseTracker verification code is ${code}. It expires in 10 minutes.`,
     html: `
@@ -81,8 +95,40 @@ async function sendOtpEmail(email, code) {
         <div style="font-size:32px;font-weight:800;letter-spacing:8px;background:#161B26;border-radius:12px;padding:16px;text-align:center">${code}</div>
         <p style="color:#94A3B8;font-size:12px;margin-top:16px">This code expires in 10 minutes. If you didn't request it, you can ignore this email.</p>
       </div>`,
+  };
+}
+
+async function sendOtpEmail(email, code) {
+  const { subject, text, html } = otpEmailContent(code);
+
+  if (resendConfigured) {
+    const { error } = await resend.emails.send({
+      from: process.env.RESEND_FROM || 'ExpenseTracker <onboarding@resend.dev>',
+      to: email,
+      subject,
+      text,
+      html,
+    });
+    if (error) throw new Error(error.message || 'Resend rejected the email');
+    return { delivered: true };
+  }
+
+  if (!transporter) {
+    // No email provider configured (development) — print the OTP instead.
+    console.log(`\n========================================`);
+    console.log(`  OTP for ${email}: ${code}`);
+    console.log(`========================================\n`);
+    return { delivered: false };
+  }
+
+  await transporter.sendMail({
+    from: process.env.SMTP_FROM || '"ExpenseTracker" <no-reply@expensetracker.app>',
+    to: email,
+    subject,
+    text,
+    html,
   });
   return { delivered: true };
 }
 
-module.exports = { sendOtpEmail, verifyMailer, isSmtpConfigured };
+module.exports = { sendOtpEmail, verifyMailer, isMailConfigured };
