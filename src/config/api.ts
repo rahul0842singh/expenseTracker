@@ -1,16 +1,9 @@
-import Constants from 'expo-constants';
+// Deployed backend. Override with EXPO_PUBLIC_API_URL when developing
+// against a local server (e.g. http://192.168.1.37:4545).
+const PRODUCTION_API_URL = 'https://expensetrackers-fl9k.onrender.com';
 
-// Derive the dev machine's LAN IP from the Metro host so physical devices
-// (Expo Go) reach the backend without manual configuration.
 export function getApiBase(): string {
-  if (process.env.EXPO_PUBLIC_API_URL) return process.env.EXPO_PUBLIC_API_URL;
-  const hostUri: string | undefined =
-    (Constants.expoConfig as { hostUri?: string } | null)?.hostUri;
-  if (hostUri) {
-    const host = hostUri.split(':')[0];
-    return `http://${host}:4545`;
-  }
-  return 'http://localhost:4545';
+  return process.env.EXPO_PUBLIC_API_URL || PRODUCTION_API_URL;
 }
 
 export class ApiError extends Error {
