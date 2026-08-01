@@ -4,6 +4,7 @@ import { createBottomTabNavigator } from '@react-navigation/bottom-tabs';
 import { createNativeStackNavigator } from '@react-navigation/native-stack';
 import React from 'react';
 import { ActivityIndicator, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { useAuth } from '../context/AuthContext';
 import AddExpenseScreen from '../screens/AddExpenseScreen';
 import AnalyticsScreen from '../screens/AnalyticsScreen';
@@ -43,6 +44,12 @@ const ICONS_FOCUSED: Record<string, keyof typeof Ionicons.glyphMap> = {
 };
 
 function AppTabs() {
+  // The system nav bar (gesture pill or 3-button bar) claims real space at
+  // the bottom of the screen. A fixed padding value undershoots it on many
+  // devices, letting the OS bar cover the tab bar's labels.
+  const insets = useSafeAreaInsets();
+  const tabBarBottomPadding = Math.max(insets.bottom, 8);
+
   return (
     <Tab.Navigator
       screenOptions={({ route }) => ({
@@ -52,8 +59,8 @@ function AppTabs() {
         tabBarStyle: {
           backgroundColor: colors.bgElevated,
           borderTopColor: colors.border,
-          height: 62,
-          paddingBottom: 8,
+          height: 54 + tabBarBottomPadding,
+          paddingBottom: tabBarBottomPadding,
           paddingTop: 6,
         },
         tabBarLabelStyle: { fontSize: 11, fontWeight: '600' },
